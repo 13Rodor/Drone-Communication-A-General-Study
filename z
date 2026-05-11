@@ -1,0 +1,251 @@
+# Drone Haberleşme ve Programlama
+
+ArduPilot, MAVProxy ve Gazebo kullanarak drone simülasyonu kurulumu ve temel uçuş komutları.
+
+---
+
+## İçindekiler
+
+- [Sistem Mimarisi](#sistem-mimarisi)
+- [Gereksinimler](#gereksinimler)
+- [Kurulum](#kurulum)
+  - [Sistem Güncellemesi](#sistem-güncellemesi)
+  - [ArduPilot Kurulumu](#ardupilot-kurulumu)
+  - [MAVProxy Kurulumu](#mavproxy-kurulumu)
+  - [Gazebo Simülatörü](#gazebo-simülatörü)
+- [Simülasyonu Başlatma](#simülasyonu-başlatma)
+- [Temel Uçuş Komutları](#temel-uçuş-komutları)
+- [RC Kanal Kontrolleri](#rc-kanal-kontrolleri)
+- [Position Komutu](#position-komutu)
+- [Kaynaklar](#kaynaklar)
+
+---
+
+## Sistem Mimarisi
+
+Görev kontrol ünitesi, Nvidia Jetson Nano gibi bir görev kontrol bilgisayarı içinde çalışan ve Pixhawk ile MAVLink protokolü üzerinden seri bağlantı kuran Python scriptlerinden oluşur. Bu scriptler, görüntü işleme algoritmalarıyla elde edilen verileri analiz eder ve Pixhawk'tan gelen drone durumu bilgilerini işler. Ardından, gerekli komutları hesaplayarak Pixhawk'a iletir.
+
+**Giriş:** Görüntü işleme algoritmalarıyla elde edilen bilgiler ve Pixhawk'tan alınan drone durum bilgileri (konum, hız, irtifa, pil durumu).
+
+**Çıkış:** Pixhawk'a iletilen kontrol komutları (konum, hız, açı ayarlamaları).
+
+---
+
+## Gereksinimler
+
+- **ArduPilot** — Pixhawk üzerinde çalışan uçuş kontrol yazılımı. Jetson Nano üzerinde de kurularak Pixhawk ile MAVLink protokolü üzerinden haberleşilir.
+- **MAVLink Protokolü** — Jetson Nano ve Pixhawk arasındaki haberleşme protokolü. Düşük gecikmeli ve güvenilir veri aktarımı sağlar.
+- **DroneKit** — MAVLink protokolü üzerinden Pixhawk ile iletişim kurmayı sağlayan Python kütüphanesi. Telemetri bilgilerini okumak ve komut göndermek için kullanılır.
+- **Gazebo** — Scriptleri test etmek ve görsel olarak gözlemlemek için kullanılan simülasyon yazılımı.
+
+---
+
+## Kurulum
+
+### Sistem Güncellemesi
+
+```bash
+sudo apt-get update
+sudo apt-get upgrade
+sudo apt update
+sudo apt install python3-pip python3-dev
+sudo apt-get install python3-pip
+```
+
+### ArduPilot Kurulumu
+
+Detaylı dokümantasyon: https://ardupilot.org/dev/docs/building-setup-linux.html
+
+Adımları dikkatlice okumak önemli çünkü bazıları hata almanız durumunda yapmanız gereken işlemleri içerirken bazıları doğrudan uygulanması gereken adımlardır.
+
+```bash
+sudo apt-get update
+sudo apt-get install git
+sudo apt-get install gitk git-gui
+
+git clone https://github.com/ArduPilot/ardupilot
+cd ardupilot
+git submodule update --init --recursive
+
+Tools/environment_install/install-prereqs-ubuntu.sh -y
+```
+
+Bu kurulum, ArduPilot'un sanal bir ağda çalışmasını sağlar. Böylece fiziksel bir Pixhawk bağlantısı olmadan, Pixhawk varmış gibi simülasyon ortamında testler yapabiliriz.
+
+### MAVProxy Kurulumu
+
+MAVProxy, MAVLink protokolü ile çalışan araçlar için geliştirilmiş hafif ve modüler bir yer kontrol istasyonu (GCS) yazılımıdır. Başlangıçta ArduPilot sistemleri için geliştirilmiş olsa da, MAVLink destekleyen tüm otonom araçlarla kullanılabilir.
+
+```bash
+sudo apt-get install python3-dev python3-opencv python3-wxgtk3.0 \
+  python3-pip python3-matplotlib python3-pygame python3-lxml python3-yaml
+
+pip install MAVProxy
+```
+
+Bu hatayı iki şekilde çözebiliriz:
+
+1. Sanal ortam (önerilen)
+2. `--break-system-packages` kullanarak zorla yükleme — bu sisteme zarar verebilir, öneri sanal ortam olur.
+
+**Sanal ortam kurulumu:**
+
+```bash
+# venv kur
+sudo apt install python3-venv
+
+# Sanal ortam oluştur
+python3 -m venv mavproxy_env
+
+# Sanal ortamı aktifleştir
+source mavproxy_env/bin/activate
+
+# MAVProxy'yi yükle
+pip install MAVProxy
+```
+
+Bir daha kullanmak için sadece `source mavproxy_env/bin/activate` yapmak yeterli.
+
+**MAVProxy'yi PATH'e ekle:**
+
+Bazı durumlarda yükleme sonrası `mavproxy.py` doğrudan çalışmaz. Nereye yüklendiğini bulmak için:
+
+```bash
+which mavproxy.py
+```
+
+Eğer bir yol dönmezse elle ekleyebilirsiniz:
+
+```bash
+export PATH=$PATH:$HOME/.local/bin
+
+# Bu değişikliği kalıcı hale getirmek için:
+echo 'export PATH=$PATH:$HOME/.local/bin' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Daha fazla bilgi için: https://ardupilot.org/mavproxy/
+
+### Gazebo Simülatörü
+
+Gazebo simülatörünü ArduPilot ile kurarak, simülasyon başlatıldığında pistte duran bir drone görüyorsanız kurulum başarılı demektir.
+
+Detaylı kurulum adımları: https://ardupilot.org/dev/docs/sitl-with-gazebo.html
+
+---
+
+## Simülasyonu Başlatma
+
+Önce Gazebo açılıyor:
+
+```bash
+cd ~/ardupilot_gazebo/build
+gazebo --verbose worlds/iris_arducopter_runway.world
+```
+
+Daha sonra ArduPilot çalıştırılıyor:
+
+```bash
+cd ~/ardupilot/ArduCopter
+../Tools/autotest/sim_vehicle.py -f gazebo-iris --console --map
+```
+
+MAVProxy bağlandığında şu mesajlar gelir:
+
+```
+Waiting for heartbeat from tcp:127.0.0.1:5760
+MAV> Detected vehicle 1:1 on link 0
+STABILIZE> Received 1414 parameters (ftp)
+```
+
+Bu iki uyarıdan sonra drona kod gönderin:
+
+```
+AP: EKF3 IMU1 is using GPS
+AP: EKF3 IMU0 is using GPS
+```
+
+---
+
+## Temel Uçuş Komutları
+
+```bash
+mode GUIDED      # Drone'u GUIDED moduna alır, MAVLink komutlarını kabul eder
+arm throttle     # Motorları çalıştırır — fazla beklersek motorlar durur
+takeoff 10       # 10 metreye yüksel
+```
+
+Ve başarılı olduktan sonra diğer modlar:
+
+```bash
+mode LAND        # Drone'u otomatik iniş moduna alır, dikey olarak alçalarak yere iner
+mode LOITER      # Drone, bulunduğu konumda GPS destekli sabit kalır
+mode RTL         # Kalkış noktasına döner
+```
+
+Bunlardan sonra haritadan sağ tıklayıp "Fly To" seçeneği ile dronu istediğimiz noktaya gönderebiliriz.
+
+Parametreleri görmek için:
+
+```bash
+param show              # Tüm parametreleri listeler
+param show [PARAM_ADI]  # Belirli bir parametreyi gösterir
+```
+
+---
+
+## RC Kanal Kontrolleri
+
+```bash
+arm throttle      # Motorları çalıştır
+
+rc 3 1600         # Motor gücünü artırır, drone yükselir
+rc 3 1700         # Daha fazla güç, hızlı yükselir
+rc 3 1500         # Dengede kalır, ne yükselir ne alçalır
+
+rc 4 1600         # Saat yönünde dönüş başlar (Yaw)
+rc 4 1500         # Dönmeyi durdurur
+
+rc 2 1400         # Drone ileri hareket eder (Pitch)
+rc 2 1500         # Hareketi durdurur, nötr konum
+
+rc 1 1400         # Drone sola hareket eder (Roll)
+rc 1 1600         # Drone sağa hareket eder
+```
+
+---
+
+## Position Komutu
+
+```bash
+position X Y Z
+```
+
+- **X** — ileri/geri hareket. Pozitif (+10) ileri, negatif (-10) geri gider.
+- **Y** — sağa/sola hareket. Pozitif (+10) sağa, negatif (-10) sola gider.
+- **Z** — irtifa kontrolü. Pozitif (+10) alçalır, negatif (-10) yükselir. Z, deniz seviyesine göre irtifayı temsil ettiği için ters çalışır.
+
+Örnek:
+
+```bash
+position 10 0 0    # 10 metre ileri
+position -10 0 0   # 10 metre geri
+position 0 10 0    # 10 metre sağa
+position 0 0 -5    # 5 metre yüksel
+```
+
+---
+
+## Kaynaklar
+
+- ArduPilot Linux Kurulum: https://ardupilot.org/dev/docs/building-setup-linux.html
+- MAVProxy Dokümantasyonu: https://ardupilot.org/mavproxy/
+- Gazebo SITL Entegrasyonu: https://ardupilot.org/dev/docs/sitl-with-gazebo.html
+- Drone Geliştirme Ortamı Kurulumu: https://www.emrehaninci.com/drone-gelistirme-ortami-kurulumu/
+- YouTube - Gazebo Kurulum: https://www.youtube.com/watch?v=gslpbWOkg5o
+- YouTube - ArduPilot SITL: https://www.youtube.com/watch?v=r35vcFrVFjQ
+- YouTube - Gazebo ile Drone: https://www.youtube.com/watch?v=t3hqj0ujZnc
+
+---
+
+Barış Adıgüzel
